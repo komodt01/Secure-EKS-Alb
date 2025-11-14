@@ -1,5 +1,7 @@
 Amazon EKS
 
+Amazon EKS
+
 What: Managed Kubernetes service on AWS.
 Why: Provides scalable, secure container orchestration.
 How: Terraform module provisions EKS cluster and node groups.
@@ -18,4 +20,6 @@ Terraform
 What: IaC tool to automate resource provisioning.
 Why: Ensures repeatable, versioned deployments.
 How: Main module provisions VPC, EKS, IAM, and Helm resources.
+
+
 
