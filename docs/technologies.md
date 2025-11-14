@@ -1,4 +1,3 @@
-Technologies Used
 Amazon EKS
 
 What: Managed Kubernetes service on AWS.
@@ -19,3 +18,4 @@ Terraform
 What: IaC tool to automate resource provisioning.
 Why: Ensures repeatable, versioned deployments.
 How: Main module provisions VPC, EKS, IAM, and Helm resources.
+
