@@ -129,5 +129,5 @@ data "aws_iam_policy_document" "irsa_assume_role" {
 resource "aws_iam_role_policy" "alb_controller_policy" {
   name   = "${var.cluster_name}-alb-controller-policy"
   role   = aws_iam_role.alb_controller_irsa.id
-  policy = file("${path.module}/alb-controller-policy.json")
+  policy = file("${path.module}/../policies/alb-controller-policy.json")
 }
