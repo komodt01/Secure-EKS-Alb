@@ -1,16 +1,13 @@
-### Teardown Instructions
+# Teardown Instructions
 
-1. Delete Helm release (if installed manually):
-```bash
-helm uninstall aws-load-balancer-controller -n kube-system
-```
+1. Remove the AWS Load Balancer Controller (if installed separately with Helm):
 
-2. Destroy infrastructure:
-```bash
-terraform destroy
-```
+   `helm uninstall aws-load-balancer-controller -n kube-system`
 
-3. Clean up kubeconfig (if needed):
-```bash
-rm ~/.kube/config
-```
+2. Destroy Terraform-managed infrastructure from the Terraform directory:
+
+   `terraform destroy`
+
+   Review the proposed destruction plan before confirming.
+
+3. Verify that the EKS cluster and associated Terraform-managed infrastructure have been removed from AWS.
