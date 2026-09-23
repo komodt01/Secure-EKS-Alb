@@ -2,75 +2,135 @@
 
 ## Project Overview
 
-This project demonstrates the infrastructure and identity foundation for running Amazon EKS workloads on AWS with private worker nodes and IAM Roles for Service Accounts (IRSA) configured for AWS Load Balancer Controller integration.
+This project demonstrates an Amazon EKS infrastructure and identity foundation built around private worker-node placement, workload-specific AWS identity, and AWS Load Balancer Controller integration.
 
-The project focuses on the architectural relationship between network segmentation, Kubernetes infrastructure, workload identity, and AWS IAM rather than implementing a complete production Kubernetes platform.
+The focus is the relationship between network placement, Kubernetes infrastructure, and AWS IAM rather than a complete production Kubernetes platform.
 
-## Architecture
+Terraform defines the AWS infrastructure and IAM configuration, while Kubernetes controller installation is handled separately.
+
+## What the Project Demonstrates
 
 The Terraform configuration provisions:
 
 * A VPC spanning two Availability Zones.
-* Public subnets intended to support internet-facing AWS resources.
-* Private subnets used by the EKS managed node group.
-* NAT connectivity for resources operating from the private subnets.
+* Separate public and private subnet tiers.
+* NAT connectivity for resources operating from private subnets.
 * An Amazon EKS cluster running Kubernetes 1.29.
-* An EKS managed node group using `t3.medium` instances.
+* An EKS managed node group deployed into private subnets.
 * An EKS OIDC provider with IRSA enabled.
 * An IAM role associated with the `aws-load-balancer-controller` Kubernetes service account.
 * IAM permissions supporting AWS Load Balancer Controller operations.
 
-The EKS API endpoint is configured for public access, while the managed worker nodes are deployed into private subnets.
+The EKS API endpoint is configured for public access. This is separate from worker-node placement: the Kubernetes compute layer remains in the private subnet tier.
 
 ## Security Architecture
 
-### Private Worker Nodes
+### Private Kubernetes Compute
 
-EKS worker nodes are deployed into private subnets rather than the public subnet tier. This separates Kubernetes compute resources from the public-facing network tier.
+The EKS managed node group is explicitly assigned to private subnets.
+
+This keeps the worker nodes out of the public subnet tier while allowing outbound connectivity through NAT.
+
+Private node placement is one layer of the architecture. It does not by itself provide pod-level segmentation, Kubernetes authorization, or complete workload isolation.
 
 ### Workload Identity with IRSA
 
-IRSA allows Kubernetes service accounts to obtain AWS permissions through the EKS OIDC provider rather than relying on credentials embedded in workloads.
+The AWS Load Balancer Controller uses IAM Roles for Service Accounts rather than relying on AWS credentials embedded in the workload or unnecessarily inheriting controller permissions from the worker-node identity.
 
 The IAM trust relationship is restricted to:
 
 `system:serviceaccount:kube-system:aws-load-balancer-controller`
 
-This establishes an identity boundary between the Kubernetes service account and its AWS IAM role.
+The federated trust also requires the audience:
 
-### Network Segmentation
+`sts.amazonaws.com`
 
-The VPC contains separate public and private subnet tiers across two Availability Zones.
+The resulting identity path is:
 
-Public subnets are tagged for Kubernetes ELB discovery, while private subnets are tagged for internal ELB discovery. The EKS managed node group is explicitly assigned to the private subnets.
+**Kubernetes Service Account → EKS OIDC Provider → AWS STS → IAM Role → AWS APIs**
+
+This separates workload identity from node identity and provides a more specific enforcement point for AWS permissions.
+
+### Public and Private Network Tiers
+
+The VPC contains public and private subnets across two Availability Zones.
+
+Public subnets are tagged for Kubernetes ELB discovery.
+
+Private subnets are tagged for internal ELB discovery and contain the EKS managed node group.
+
+This establishes network placement boundaries between infrastructure intended to support public-facing AWS resources and the Kubernetes compute tier.
 
 ### AWS Load Balancer Controller Integration
 
-The repository contains the IAM role, IRSA trust relationship, and IAM permissions needed to support the AWS Load Balancer Controller.
+The repository defines the AWS-side identity and permissions required to support the AWS Load Balancer Controller.
 
-Controller installation and Kubernetes Ingress resources are handled separately from the Terraform infrastructure defined in this repository.
+This includes:
+
+* The EKS OIDC integration.
+* The controller IAM role.
+* The service-account-specific trust relationship.
+* The controller IAM permissions.
+
+Controller installation and Kubernetes Ingress resources are managed separately from the Terraform infrastructure in this repository.
 
 ## Architecture Decisions
 
-Several design decisions are demonstrated in the project:
+The project demonstrates several deliberate architecture decisions:
 
 * Keep Kubernetes worker nodes in private subnets.
-* Separate public-facing and workload subnet tiers.
-* Use IRSA for workload-specific AWS permissions.
-* Restrict the IRSA trust relationship to a specific Kubernetes service account.
-* Define infrastructure through Terraform for repeatability and version control.
-* Separate AWS infrastructure provisioning from Kubernetes controller installation.
+* Separate public-facing and workload network tiers.
+* Treat EKS API exposure separately from worker-node placement.
+* Use workload-specific AWS identity through IRSA.
+* Restrict role assumption to the intended Kubernetes service account.
+* Separate IAM trust from IAM permissions.
+* Define AWS infrastructure through Terraform for repeatability and change visibility.
+* Keep Kubernetes controller lifecycle operations separate from AWS infrastructure provisioning.
+
+## Trust Boundaries
+
+EKS crosses multiple security domains and should not be treated as a single security boundary.
+
+The project identifies three particularly important paths:
+
+**AWS-facing path**
+
+External traffic may move from AWS load-balancing infrastructure toward Kubernetes services and workloads. The complete application and Ingress path is not implemented by this repository.
+
+**Kubernetes management path**
+
+Administrative access reaches the EKS control plane through the configured public API endpoint, while worker nodes remain in private subnets.
+
+**Workload-to-AWS identity path**
+
+The AWS Load Balancer Controller service account federates through the EKS OIDC provider and AWS STS before receiving the permissions assigned to its IAM role.
+
+Detailed boundary analysis, including failure and bypass considerations, is documented in `docs/trust-boundaries.md`.
+
+## Validation
+
+Operational validation is documented in `docs/validation.md`.
+
+The documented checks include:
+
+* Configuring local `kubectl` access to the EKS cluster.
+* Verifying registered worker nodes.
+* Checking for the AWS Load Balancer Controller deployment in the `kube-system` namespace.
+
+These checks validate selected aspects of the environment. They do not demonstrate a deployed application, Kubernetes Ingress, TLS, DNS, or production monitoring.
 
 ## Repository Structure
 
 ```text
 Secure-EKS-Alb/
-├── Diagram/
-│   └── Secure-EKS-Alb.png
 ├── docs/
+│   ├── executive-case-study.md
 │   ├── linux_commands_used.md
 │   ├── teardown.md
-│   └── technologies.md
+│   ├── technical-case-study.md
+│   ├── technologies.md
+│   ├── trust-boundaries.md
+│   └── validation.md
 ├── policies/
 │   └── alb-controller-policy.json
 ├── terraform/
@@ -86,14 +146,49 @@ Secure-EKS-Alb/
 * Amazon EKS
 * Amazon VPC
 * AWS IAM
+* AWS STS
+* EKS OIDC federation
 * IAM Roles for Service Accounts (IRSA)
 * AWS Load Balancer Controller integration
 * Terraform
 * Kubernetes
 * Helm for separate controller lifecycle operations
 
-## Scope
+## Production Considerations
 
-This repository demonstrates the AWS infrastructure and identity foundation for an EKS architecture designed to support load balancer integration.
+This repository demonstrates a focused infrastructure and identity foundation. It is not a complete production EKS security platform.
 
-It does not represent a complete production Kubernetes platform. Kubernetes application workloads, Ingress resources, TLS configuration, DNS configuration, centralized logging, and production monitoring are outside the Terraform implementation contained in this repository.
+Additional production architecture decisions would normally include:
+
+* Kubernetes RBAC and privileged administration.
+* EKS API endpoint restrictions.
+* Kubernetes NetworkPolicy and workload segmentation.
+* Secrets management.
+* Container image security and provenance.
+* Admission controls.
+* Runtime security.
+* Centralized audit and security logging.
+* Detection and incident response.
+* Ingress security.
+* TLS and certificate lifecycle.
+* DNS.
+* WAF or other edge controls where required.
+* Egress restrictions.
+* Environment separation.
+* Backup and recovery.
+
+These are architecture considerations, not controls implemented by this project.
+
+## Architecture Takeaway
+
+The security architecture is based on separating concerns rather than treating EKS as one security boundary.
+
+Network placement determines where Kubernetes compute runs.
+
+The EKS endpoint determines how the Kubernetes control plane can be reached.
+
+OIDC and STS establish the bridge between Kubernetes workload identity and AWS IAM.
+
+IAM trust determines which workload identity may assume the controller role, while IAM permissions determine what that role may do.
+
+Together, those controls establish the infrastructure and identity foundation on which additional Kubernetes and application security controls can be built.
